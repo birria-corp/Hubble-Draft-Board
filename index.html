@@ -136,7 +136,7 @@ function renderSettingsModal(){
 function renderTopbar(){
   const user=window._authUser;
   document.getElementById('topbar').innerHTML=
-    '<span class="topbar-title">&#x1F52D; Hubble</span><span class="topbar-spacer"></span>'+
+    '<span class="topbar-title"><img src="icon-192.png" style="width:28px;height:28px;border-radius:6px;vertical-align:middle;margin-right:6px;object-fit:cover"> Hubble</span><span class="topbar-spacer"></span>'+
     (user
       ?'<span class="topbar-email">'+esc(user.email)+'</span>'+
         '<button class="topbar-btn" onclick="window._syncNow&&window._syncNow()">&#9729; Sync</button>'+
