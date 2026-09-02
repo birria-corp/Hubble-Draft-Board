@@ -40,4 +40,5 @@ CONTEXT.md
 ## Version History
 | Version | Changes |
 |---------|---------|
+| 1.1 | Conflict modal replaces confirm(), reserve overflow warning, salary validation, sync toasts, export version field, save timestamp |
 | 1.0 | Initial release — full PWA with Firebase sync, consolidated from 3-script source |

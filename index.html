@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hubble Draft Board</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon.svg"><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hubble Draft Board</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><style>
 :root{--bg:#07101f;--panel:#101d32;--line:#263b58;--muted:#96a9c4;--text:#f5f9ff;--blue:#4f8cff;--green:#20c981;--gold:#f4b83f;--red:#ef5a67}*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#07101f,#101b31);color:var(--text);font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 .topbar{display:flex;align-items:center;gap:8px;padding:7px 16px;background:#060f1c;border-bottom:1px solid var(--line);flex-wrap:wrap}.topbar-title{font-weight:800;font-size:15px;color:var(--text);margin-right:4px}.topbar-spacer{flex:1}.topbar-email{font-size:12px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topbar-btn{border:1px solid var(--line);background:#162640;color:var(--text);border-radius:7px;padding:5px 11px;font-size:13px;cursor:pointer;white-space:nowrap}.topbar-btn:hover{filter:brightness(1.2)}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:flex;align-items:center;justify-content:center}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;min-width:320px;max-width:480px;width:90vw}.modal h2{margin:0 0 18px;font-size:17px}.modal-close{float:right;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;margin-top:-4px}.modal-row{display:flex;align-items:center;gap:10px;margin-bottom:13px}.modal-row label{flex:1;color:#d8e6fb;font-size:14px}
@@ -24,13 +24,15 @@ async function runSync(uid){
     if(snap.exists()){
       const cloud=snap.data().payload;
       if(cloud&&cloud!==local){
-        if(!local||confirm('Cloud data differs from local. Use cloud data?')){
-          localStorage.setItem(LS,cloud);
-          window._reloadAppState&&window._reloadAppState();
-        }else{await setDoc(ref,{payload:local});}
+        const useCloud=await(window._conflictModal?window._conflictModal(cloud,local):Promise.resolve(!local));
+        if(useCloud){localStorage.setItem(LS,cloud);window._reloadAppState&&window._reloadAppState();window._showToast&&window._showToast('Loaded cloud save.');}
+        else{await setDoc(ref,{payload:local});window._showToast&&window._showToast('Pushed local to cloud.');}
+        return;
       }
-    }else if(local){await setDoc(ref,{payload:local});}
-  }catch(e){console.error('Sync error',e);}
+    }
+    if(local){await setDoc(ref,{payload:local});}
+    window._showToast&&window._showToast('Synced ✓');
+  }catch(e){console.error('Sync error',e);window._showToast&&window._showToast('Sync failed.');}
 }
 window._signIn=()=>signInWithPopup(auth,provider).catch(e=>alert('Sign-in failed: '+e.message));
 window._signOut=()=>signOut(auth);
@@ -47,17 +49,18 @@ onAuthStateChanged(auth,async user=>{
 </script>
 </head><body>
 <div class="topbar" id="topbar"></div>
-<header><h1>&#x1F52D; Hubble Draft Board</h1><p>NFL auction draft — scoring-aware values, roster slots, sleepers, and best available.</p></header>
+<header><h1>Hubble Draft Board</h1><p>NFL auction draft — scoring-aware values, roster slots, sleepers, and best available.</p></header>
 <main>
 <section class="summary"><div class="card"><span>Draft Budget</span><strong id="budget"></strong></div><div class="card"><span>Rostered</span><strong id="count"></strong></div><div class="card"><span>Open Slots</span><strong id="slots"></strong></div><div class="card"><span>Available</span><strong id="shown"></strong></div></section>
 <nav class="tabs" id="tabs"></nav>
 <section id="view"></section>
 </main>
 <div class="modal-overlay hidden" id="settingsModal"><div class="modal"><button class="modal-close" onclick="closeSettings()">&#x2715;</button><h2>&#9881; Settings</h2><div id="settingsModalBody"></div></div></div>
+<div class="modal-overlay hidden" id="conflictModal"><div class="modal"><button class="modal-close" onclick="document.getElementById('conflictModal').classList.add('hidden')">&#x2715;</button><h2>&#9729; Sync Conflict</h2><p style="color:var(--muted);font-size:14px;margin:0 0 8px">Cloud data differs from local. Which version do you want to keep?</p><div id="conflictDates" style="font-size:12px;color:var(--muted);margin:0 0 16px"></div><div style="display:flex;gap:10px"><button id="conflictCloud" class="topbar-btn" style="flex:1;background:#164c3c;padding:10px">Use Cloud</button><button id="conflictLocal" class="topbar-btn" style="flex:1;background:#2a3f61;padding:10px">Keep Local</button></div></div></div>
 <div class="toast hidden" id="toast"></div>
 <input id="file" class="hidden" type="file" accept="application/json,.json">
 <script>
-const APP_VERSION='1.0';
+const APP_VERSION='1.1';
 const LS_STATE='HDB_state',LS_FS='HDB_fontsize',LS_EXPORT='HDB_lastexport';
 // migrate old key
 if(!localStorage.getItem(LS_STATE)&&localStorage.getItem('hubble-draft-board-v1')){localStorage.setItem(LS_STATE,localStorage.getItem('hubble-draft-board-v1'));}
@@ -89,18 +92,19 @@ const kt=()=>picks().filter(p=>p.keeper==='Yes').reduce((s,p)=>s+Number(p.salary
 const ds=()=>picks().filter(p=>p.keeper!=='Yes').reduce((s,p)=>s+Number(p.salary||0),0);
 const db=()=>settings.totalBudget-settings.trades-kt();
 const money=n=>'$'+Number(n||0).toLocaleString();
-function save(){localStorage.setItem(LS_STATE,JSON.stringify({players:state,settings,history}));}
+function save(){localStorage.setItem(LS_STATE,JSON.stringify({players:state,settings,history,ts:Date.now()}));}
 function snapshot(){history.push(JSON.stringify({players:state,settings}));if(history.length>50)history.shift();save();}
-function act(kind,n){snapshot();const p=getp(n);if(kind==='take'){p.status='Taken';p.salary=null;}if(kind==='pick'){p.status='Picked';p.salary=p.salary??'';p.pickOrder=Date.now();}if(kind==='remove'){p.status='Available';p.salary=null;}save();draw();}
+function act(kind,n){snapshot();const p=getp(n);if(kind==='take'){p.status='Taken';p.salary=null;}if(kind==='pick'){p.status='Picked';p.salary=p.salary??'';p.pickOrder=Date.now();const a=assignments();if(a.r.includes(p))window._showToast(p.name+' → Reserves ('+group(p)+' full)');}if(kind==='remove'){p.status='Available';p.salary=null;}save();draw();}
 function undo(){if(!history.length)return;const old=JSON.parse(history.pop());state=old.players;settings=old.settings;save();draw();}
 const limits={QB:1,RB:1,'WR-TE':4,K:1,DST:1};
 function assignments(){let rem={...limits},s={QB:[],RB:[],'WR-TE':[],K:[],DST:[]},r=[];for(const p of picks()){const g=group(p);if(rem[g]>0){s[g].push(p);rem[g]--;}else r.push(p);}return{s,r};}
 // toast
 let toastTimer;
 window._showToast=function(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.remove('hidden');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.add('hidden'),3000);};
+window._conflictModal=function(cloud,local){return new Promise(resolve=>{let cd='',ld='';try{const c=JSON.parse(cloud);if(c.ts)cd=new Date(c.ts).toLocaleString();}catch{}try{const l=JSON.parse(local);if(l.ts)ld=new Date(l.ts).toLocaleString();}catch{}const el=document.getElementById('conflictDates');if(el)el.innerHTML=(cd?'Cloud: '+cd:'No cloud timestamp')+(ld?'<br>Local: '+ld:'');document.getElementById('conflictModal').classList.remove('hidden');document.getElementById('conflictCloud').onclick=()=>{document.getElementById('conflictModal').classList.add('hidden');resolve(true);};document.getElementById('conflictLocal').onclick=()=>{document.getElementById('conflictModal').classList.add('hidden');resolve(false);};});}
 // export
 function exportData(){
-  const blob=new Blob([JSON.stringify({players:state,settings,history},null,2)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({version:APP_VERSION,players:state,settings,history},null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='hubble-draft-board-'+new Date().toISOString().slice(0,10)+'.json';a.click();
   localStorage.setItem(LS_EXPORT,Date.now());window._showToast('Exported!');
 }
@@ -245,7 +249,7 @@ document.addEventListener('click',e=>{
   if(b.dataset.action==='copyH')promptBox(true);
 });
 document.addEventListener('change',e=>{
-  if(e.target.dataset.salary){snapshot();const p=getp(e.target.dataset.salary);if(p){p.salary=e.target.value===''?0:Number(e.target.value);save();draw();}}
+  if(e.target.dataset.salary){const p=getp(e.target.dataset.salary);if(p){const v=e.target.value===''?0:Number(e.target.value);if(isNaN(v)||v<0){window._showToast('Invalid salary — must be 0 or more.');e.target.value=p.salary??0;return;}snapshot();p.salary=v;save();draw();}}
   if(e.target.dataset.setting){snapshot();settings[e.target.dataset.setting]=Number(e.target.value)||0;save();draw();}
   if(e.target.dataset.score){snapshot();settings.scoring[e.target.dataset.score]=e.target.value;save();draw();}
   if(e.target.dataset.kfield){snapshot();const p=getp(e.target.dataset.name),f=e.target.dataset.kfield;if(p)p[f]=f==='pos'?e.target.value.toUpperCase():e.target.value;save();draw();}
